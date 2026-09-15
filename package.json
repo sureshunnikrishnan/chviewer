@@ -1,0 +1,29 @@
+{
+  "name": "chviewer",
+  "version": "1.0.0",
+  "description": "Terminal UI for browsing Cursor agent chat history, built with OpenTUI",
+  "type": "module",
+  "scripts": {
+    "start": "bun src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["tui", "opentui", "terminal", "cursor", "chat-history"],
+  "author": "Suresh Unnikrishnan",
+  "license": "ISC",
+  "packageManager": "pnpm@12.4.1",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.4.1",
+      "onFail": "download"
+    }
+  },
+  "dependencies": {
+    "@opentui/core": "^0.5.11"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "typescript": "^7.0.2"
+  }
+}
