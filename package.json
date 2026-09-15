@@ -10,7 +10,7 @@
   },
   "keywords": ["tui", "opentui", "terminal", "cursor", "chat-history"],
   "author": "Suresh Unnikrishnan",
-  "license": "ISC",
+  "license": "MIT",
   "packageManager": "pnpm@12.4.1",
   "devEngines": {
     "packageManager": {

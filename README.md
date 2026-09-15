@@ -74,4 +74,4 @@ chviewer reads files under your Cursor data directories (chat transcripts and pl
 
 ## License
 
-[ISC](LICENSE)
+[MIT](LICENSE)
