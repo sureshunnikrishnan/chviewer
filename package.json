@@ -3,10 +3,34 @@
   "version": "1.0.0",
   "description": "Terminal UI for browsing Cursor agent chat history, built with OpenTUI",
   "type": "module",
+  "bin": {
+    "chviewer": "./bin/chviewer.ts"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sureshunnikrishnan/chviewer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sureshunnikrishnan/chviewer/issues"
+  },
+  "homepage": "https://github.com/sureshunnikrishnan/chviewer#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "start": "bun src/index.ts",
     "dev": "bun --watch src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "keywords": ["tui", "opentui", "terminal", "cursor", "chat-history"],
   "author": "Suresh Unnikrishnan",

@@ -1,0 +1,54 @@
+name: Bug report
+description: Report something that is broken or unexpected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. chviewer reads local Cursor files only — please do not paste real transcripts or secrets.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `bunx chviewer`
+        2. Select workspace …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: chviewer version
+      placeholder: "1.0.0 or git commit"
+  - type: input
+    id: bun
+    attributes:
+      label: Bun version
+      placeholder: "bun --version output"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows (WSL)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output
+      description: Paste terminal errors if any (redact paths that identify you).

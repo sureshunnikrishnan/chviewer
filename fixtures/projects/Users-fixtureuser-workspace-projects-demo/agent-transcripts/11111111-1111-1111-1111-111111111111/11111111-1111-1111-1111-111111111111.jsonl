@@ -1,0 +1,7 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>How do I run the demo app?</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Run `pnpm start` from the project root."}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Friday, Jan 1, 2026</timestamp>Follow up without user_query tags"}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"CreatePlan","input":{"name":"demo_plan_abcd1234.plan.md","overview":"Demo plan for tests"}}]}}
+{"role":"turn_ended","message":{"content":[]}}
+not valid json — should be skipped
+{"role":"assistant","message":{"content":[{"type":"text","text":"See plan at /tmp/fixture-plans/demo_plan_abcd1234.plan.md for details."}]}}

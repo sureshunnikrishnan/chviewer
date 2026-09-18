@@ -9,5 +9,5 @@
     "types": ["node"],
     "lib": ["ESNext"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "bin/**/*.ts"]
 }
