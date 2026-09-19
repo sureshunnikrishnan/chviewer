@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "stop": [
+      {
+        "command": "/Users/sureshunnikrishnan/.local/share/uv/tools/omnigent/bin/python -I -m omnigent.harnesses.cursor_native.usage record-usage --bridge-dir /var/folders/7_/j6gq0bm5191d76vrgs640l_00000gn/T/omnigent-501/cursor-native/1dc3fb7fb1f894775c59788a9d1dbb67"
+      }
+    ]
+  },
+  "version": 1
+}
