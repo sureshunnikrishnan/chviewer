@@ -1,0 +1,2 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>What is a normal session?</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"A normal session has user and assistant messages."}]}}

@@ -1,6 +1,6 @@
 ---
 name: Demo Plan
-overview: Synthetic plan fixture for chviewer tests.
+overview: Synthetic plan fixture for AGExplorer tests.
 todos:
   - id: step-one
     content: First demo step

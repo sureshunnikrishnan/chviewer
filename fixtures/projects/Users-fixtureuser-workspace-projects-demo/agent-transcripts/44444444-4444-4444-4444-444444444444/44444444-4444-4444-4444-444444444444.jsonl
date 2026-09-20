@@ -1,0 +1,3 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>Incomplete final line test</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Complete line before partial."}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"partial without closing

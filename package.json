@@ -1,10 +1,10 @@
 {
-  "name": "chviewer",
+  "name": "ag-explorer",
   "version": "1.0.0",
-  "description": "Terminal UI for browsing Cursor agent chat history, built with OpenTUI",
+  "description": "Terminal explorer for AI coding sessions (Cursor-backed), built with OpenTUI",
   "type": "module",
   "bin": {
-    "chviewer": "./bin/chviewer.ts"
+    "ag-explorer": "./bin/ag-explorer.ts"
   },
   "files": [
     "bin/",
@@ -17,18 +17,18 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sureshunnikrishnan/chviewer.git"
+    "url": "git+https://github.com/sureshunnikrishnan/AGExplorer.git"
   },
   "bugs": {
-    "url": "https://github.com/sureshunnikrishnan/chviewer/issues"
+    "url": "https://github.com/sureshunnikrishnan/AGExplorer/issues"
   },
-  "homepage": "https://github.com/sureshunnikrishnan/chviewer#readme",
+  "homepage": "https://github.com/sureshunnikrishnan/AGExplorer#readme",
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "start": "bun src/index.ts",
-    "dev": "bun --watch src/index.ts",
+    "start": "bun src/cli.ts",
+    "dev": "bun --watch src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

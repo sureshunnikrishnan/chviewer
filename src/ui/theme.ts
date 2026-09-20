@@ -21,7 +21,6 @@ export const theme = {
   placeholder: "#5c5c78",
   footerText: "#00ffff",
   divider: "#3d3d55",
-  // Conversation parties
   userLabel: "#ff00ff",
   userText: "#ffb3ff",
   agentLabel: "#00ffff",

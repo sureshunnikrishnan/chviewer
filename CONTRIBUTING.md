@@ -1,6 +1,6 @@
-# Contributing to chviewer
+# Contributing to AGExplorer
 
-Thanks for your interest in improving chviewer. This project is a local-only Bun CLI for browsing Cursor agent transcripts.
+Thanks for your interest in improving AGExplorer. This project is a local-only Bun CLI for browsing Cursor agent transcripts.
 
 ## Development setup
 
@@ -10,8 +10,8 @@ Requirements:
 - [pnpm](https://pnpm.io) 12.4.1 (see `packageManager` in `package.json`)
 
 ```bash
-git clone https://github.com/sureshunnikrishnan/chviewer.git
-cd chviewer
+git clone https://github.com/sureshunnikrishnan/AGExplorer.git
+cd AGExplorer
 pnpm install
 cp .env.example .env
 ```
@@ -31,15 +31,18 @@ Tests live in [`test/`](test/) and use anonymized fixtures under [`fixtures/`](f
 
 **Never commit real Cursor transcripts, `.env` files, or machine-specific paths.** Fixtures must use synthetic usernames, UUIDs, and paths only.
 
-When adding parser or history behavior, extend fixtures to cover:
+When adding parser or indexing behavior, extend fixtures to cover:
 
 - user messages with and without `<user_query>` tags
 - assistant text turns
-- `turn_ended` lines (skipped)
+- `turn_ended` lines (indexed; skipped in display)
 - malformed JSONL lines (skipped gracefully)
+- incomplete final lines without newline
+- large conversations
+- updated and deleted transcripts (use temp copies in tests)
 - Cursor Plan references (`CreatePlan` tool use and `*.plan.md` paths)
 
-Point tests at fixtures via `CURSOR_CHAT_HISTORY_DIR` and `CURSOR_PLANS_DIR`.
+Point tests at fixtures via `CURSOR_CHAT_HISTORY_DIR`, `CURSOR_PLANS_DIR`, and a temp `AG_EXPLORER_DB_PATH`.
 
 ## Pull requests
 
@@ -51,8 +54,9 @@ Point tests at fixtures via `CURSOR_CHAT_HISTORY_DIR` and `CURSOR_PLANS_DIR`.
 ## Code style
 
 - TypeScript with strict mode
-- Prefer existing patterns in `src/history.ts` and `src/index.ts`
-- No network calls — chviewer reads local files only
+- Source layout: `src/providers/cursor/` (ingestion), `src/db/` (SQLite), `src/core/` (index API + format), `src/ui/` (OpenTUI)
+- UI must stay provider-agnostic — read from `db/store`, not Cursor files directly
+- No network calls — AGExplorer reads local files only
 
 ## Releasing
 
@@ -64,4 +68,4 @@ Maintainers cut releases from `master`:
 
 ## Questions
 
-Open a [GitHub issue](https://github.com/sureshunnikrishnan/chviewer/issues) for bugs or feature ideas.
+Open a [GitHub issue](https://github.com/sureshunnikrishnan/AGExplorer/issues) for bugs or feature ideas.

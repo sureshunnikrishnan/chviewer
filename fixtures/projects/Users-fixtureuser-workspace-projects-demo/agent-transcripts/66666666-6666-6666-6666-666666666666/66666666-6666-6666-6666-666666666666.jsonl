@@ -1,0 +1,10 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>Fix search bug</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"CreatePlan","input":{"name":"demo_plan_abcd1234.plan.md","overview":"Fix search indexing","todos":[{"id":"search-text","content":"Add searchableText()"}]}}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"path":"/tmp/fixture/src/search.ts"}}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Grep","input":{"pattern":"loadHistory","path":"/tmp/fixture/src","glob":"*.ts","head_limit":20}}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"StrReplace","input":{"path":"/tmp/fixture/src/history.ts","old_string":"const messages = parse(raw)","new_string":"const messages = parseTranscript(raw)"}}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Delete","input":{"path":"/tmp/fixture/src/legacy.ts"}}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Shell","input":{"command":"pnpm test","description":"Run tests","working_directory":"/tmp/fixture"}}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"All tests pass. Summary: renamed parse helper."}]}}
+{"type":"turn_ended","status":"error","error":"User aborted request"}
+{"type":"future_event","foo":1}

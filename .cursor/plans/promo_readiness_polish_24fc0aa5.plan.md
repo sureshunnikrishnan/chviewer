@@ -1,6 +1,6 @@
 ---
 name: Promo readiness polish
-overview: "Make chviewer promotion-ready: anonymized transcript fixtures + Bun tests, npm/bunx installable CLI, CI/CD and GitHub Releases, contributor/changelog/issue docs, README install polish with media placeholders, and GitHub About/topics."
+overview: "Make ag-explorer promotion-ready: anonymized transcript fixtures + Bun tests, npm/bunx installable CLI, CI/CD and GitHub Releases, contributor/changelog/issue docs, README install polish with media placeholders, and GitHub About/topics."
 todos:
   - id: fixtures-tests
     content: Add anonymized fixtures under fixtures/ and bun test suite for history/env
@@ -23,7 +23,7 @@ todos:
 isProject: false
 ---
 
-# chviewer promotion readiness
+# ag-explorer promotion readiness
 
 ## Context
 
@@ -54,16 +54,16 @@ Scripts: `"test": "bun test"`. Keep tests offline and fixture-rooted via `CURSOR
 
 Package for Bun-first install (same pattern as other OpenTUI CLIs):
 
-- Thin entry [`bin/chviewer.ts`](bin/chviewer.ts) (or `src/cli.ts`) with `#!/usr/bin/env bun`
-- `"bin": { "chviewer": "./bin/chviewer.ts" }` (or compiled `dist` if we add a small `bun build` step — prefer **shipping TS/JS source + Bun shebang** initially to avoid asset bundling complexity)
+- Thin entry [`bin/ag-explorer.ts`](bin/ag-explorer.ts) (or `src/cli.ts`) with `#!/usr/bin/env bun`
+- `"bin": { "ag-explorer": "./bin/ag-explorer.ts" }` (or compiled `dist` if we add a small `bun build` step — prefer **shipping TS/JS source + Bun shebang** initially to avoid asset bundling complexity)
 - `"files"`: `bin/`, `src/`, `LICENSE`, `README.md` (exclude fixtures unless useful as examples)
 - `"engines": { "bun": ">=1.3.0" }` — no false `engines.node`
 - README install block:
 
 ```bash
-bunx chviewer
+bunx ag-explorer
 # or
-bun add -g chviewer
+bun add -g ag-explorer
 ```
 
 Update clone URL to the real repo. Keep `pnpm start` / `pnpm dev` for contributors.
@@ -120,8 +120,8 @@ After packaging + CI land: tag `v1.0.0`, push tag, let release workflow create t
 flowchart LR
   fixtures[fixtures anonymized JSONL] --> bunTest[bun test]
   bunTest --> ci[GitHub Actions CI]
-  binEntry[bin/chviewer Bun shebang] --> npmPkg[npm package]
-  npmPkg --> bunx[bunx chviewer]
+  binEntry[bin/ag-explorer Bun shebang] --> npmPkg[npm package]
+  npmPkg --> bunx[bunx ag-explorer]
   tag[git tag vX.Y.Z] --> release[GitHub Release]
   tag --> npmPub[npm publish optional]
 ```

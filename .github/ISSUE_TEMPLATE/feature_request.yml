@@ -6,12 +6,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        chviewer is local-only and reads Cursor transcript/plan files on disk. Feature ideas should fit that scope.
+        AGExplorer is local-only and reads Cursor transcript/plan files on disk. Feature ideas should fit that scope.
   - type: textarea
     id: problem
     attributes:
       label: Problem or use case
-      description: What are you trying to do that chviewer does not support today?
+      description: What are you trying to do that AGExplorer does not support today?
     validations:
       required: true
   - type: textarea

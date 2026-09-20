@@ -1,0 +1,3 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>Malformed lines test</user_query>"}]}}
+not valid json — should be skipped
+{"role":"assistant","message":{"content":[{"type":"text","text":"Recovered after bad line."}]}}
