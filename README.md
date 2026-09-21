@@ -4,9 +4,7 @@ A terminal explorer for AI coding sessions — built with [OpenTUI](https://open
 
 Understand how a session unfolded (reads, edits, commands, errors) without rereading the full conversation. Runs entirely on your machine; it only reads local agent transcript files — nothing is uploaded or sent over the network.
 
-![AGExplorer demo](docs/assets/demo.gif)
-
-> **Note:** Add `docs/assets/demo.gif` after recording a terminal walkthrough (workspaces → chat → copy). See [CONTRIBUTING.md](CONTRIBUTING.md).
+![AGExplorer session explorer](assets/agexplorer.png)
 
 ## Features
 
