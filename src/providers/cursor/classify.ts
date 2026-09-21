@@ -68,7 +68,7 @@ export function classifyToolUse(
         payload: {
           ...base,
           path: input.path,
-          editKind: "delete",
+          editKind: "Delete",
         },
       }
 

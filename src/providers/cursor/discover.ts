@@ -1,10 +1,23 @@
 import { readdir, stat } from "node:fs/promises"
 import { join } from "node:path"
 import type { DiscoveredProject, DiscoveredSession } from "../../core/types"
+import type { ProviderProject, ProviderSessionSummary } from "../types"
 import { formatWorkspaceName, resolveChatHistoryDir } from "./paths"
 
-const PROVIDER = "cursor"
+export const CURSOR_PROVIDER_ID = "cursor"
 const ENV_CHAT_HISTORY_DIR = "CURSOR_CHAT_HISTORY_DIR"
+
+export async function discoverCursorSessions(
+  project: ProviderProject,
+): Promise<ProviderSessionSummary[]> {
+  const transcriptsDir = join(project.sourcePath, "agent-transcripts")
+  const sessions = await listSessionFiles(transcriptsDir)
+  return sessions.map((session) => ({
+    sourcePath: session.source_path,
+    sourceMtime: session.source_mtime,
+    sourceSize: session.source_size,
+  }))
+}
 
 async function listSessionFiles(transcriptsDir: string): Promise<DiscoveredSession[]> {
   let entries
@@ -35,9 +48,9 @@ async function listSessionFiles(transcriptsDir: string): Promise<DiscoveredSessi
   return sessions
 }
 
-export async function discoverCursorProjects(
+export async function discoverCursorProjectList(
   historyDir = resolveChatHistoryDir(),
-): Promise<DiscoveredProject[]> {
+): Promise<ProviderProject[]> {
   let entries
   try {
     entries = await readdir(historyDir, { withFileTypes: true })
@@ -48,21 +61,40 @@ export async function discoverCursorProjects(
     )
   }
 
-  const projects: DiscoveredProject[] = []
+  const projects: ProviderProject[] = []
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
     if (entry.name.startsWith(".")) continue
 
-    const source_path = join(historyDir, entry.name)
-    const transcriptsDir = join(source_path, "agent-transcripts")
+    const sourcePath = join(historyDir, entry.name)
+    const transcriptsDir = join(sourcePath, "agent-transcripts")
     const sessions = await listSessionFiles(transcriptsDir)
     if (sessions.length === 0) continue
 
     projects.push({
-      provider: PROVIDER,
+      id: sourcePath,
       name: formatWorkspaceName(entry.name),
-      source_path,
+      sourcePath,
+    })
+  }
+
+  return projects
+}
+
+export async function discoverCursorProjects(
+  historyDir = resolveChatHistoryDir(),
+): Promise<DiscoveredProject[]> {
+  const projectList = await discoverCursorProjectList(historyDir)
+  const projects: DiscoveredProject[] = []
+
+  for (const project of projectList) {
+    const transcriptsDir = join(project.sourcePath, "agent-transcripts")
+    const sessions = await listSessionFiles(transcriptsDir)
+    projects.push({
+      provider: CURSOR_PROVIDER_ID,
+      name: project.name,
+      source_path: project.sourcePath,
       sessions,
     })
   }

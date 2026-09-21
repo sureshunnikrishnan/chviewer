@@ -1,6 +1,6 @@
 # Contributing to AGExplorer
 
-Thanks for your interest in improving AGExplorer. This project is a local-only Bun CLI for browsing Cursor agent transcripts.
+Thanks for your interest in improving AGExplorer. This project is a local-only Bun CLI for browsing AI coding agent sessions (Cursor, Claude Code, and more via providers).
 
 ## Development setup
 
@@ -54,8 +54,9 @@ Point tests at fixtures via `CURSOR_CHAT_HISTORY_DIR`, `CURSOR_PLANS_DIR`, and a
 ## Code style
 
 - TypeScript with strict mode
-- Source layout: `src/providers/cursor/` (ingestion), `src/db/` (SQLite), `src/core/` (index API + format), `src/ui/` (OpenTUI)
-- UI must stay provider-agnostic — read from `db/store`, not Cursor files directly
+- Source layout: `src/providers/<id>/` (ingestion + projection), `src/providers/registry.ts`, `src/db/` (SQLite), `src/core/` (index API + format), `src/ui/` (OpenTUI)
+- UI must stay provider-agnostic — read from `db/store`, not provider files directly
+- To add a provider: implement `SessionProvider` under `src/providers/<id>/` and register it in `src/providers/registry.ts` (no schema or TUI changes required)
 - No network calls — AGExplorer reads local files only
 
 ## Releasing

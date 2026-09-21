@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { AgentEvent } from "../../src/core/agent-session"
 import {
+  availableTimelineCategories,
   eventMatchesCategory,
   filterTimelineEvents,
   filterTimelineEventsByCategory,
@@ -108,5 +109,16 @@ describe("timeline", () => {
   test("formatCategoryFilterLine marks active category", () => {
     expect(formatCategoryFilterLine("commands")).toContain("[commands]")
     expect(formatCategoryFilterLine("commands")).not.toContain("[files]")
+  })
+
+  test("availableTimelineCategories omits plans when unsupported", () => {
+    const categories = availableTimelineCategories({
+      toolCalls: true,
+      fileChanges: true,
+      commands: true,
+      plans: false,
+    })
+    expect(categories).not.toContain("plans")
+    expect(formatCategoryFilterLine("all", categories)).not.toContain("plans")
   })
 })

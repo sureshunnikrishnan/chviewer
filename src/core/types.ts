@@ -49,6 +49,7 @@ export type DiscoveredProject = {
 export type Project = {
   id: number
   name: string
+  provider: string
   sessionCount: number
   lastSessionAt: number
 }
@@ -83,6 +84,7 @@ export type SearchFilters = {
   session?: string
   role?: string
   event?: string
+  provider?: string
   before?: number
   after?: number
 }

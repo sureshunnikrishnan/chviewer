@@ -41,6 +41,32 @@ CREATE INDEX IF NOT EXISTS idx_sessions_project_updated ON sessions(project_id, 
 CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, seq);
 CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind);
 CREATE INDEX IF NOT EXISTS idx_events_role ON events(role);
+
+CREATE TABLE IF NOT EXISTS session_files (
+  session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  relation TEXT NOT NULL,
+  UNIQUE (session_id, path, relation)
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_files_session ON session_files(session_id);
+
+CREATE TABLE IF NOT EXISTS knowledge_items (
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+  session_source_path TEXT NOT NULL,
+  event_seq INTEGER,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'bookmark',
+  created_at REAL NOT NULL,
+  meta_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_session ON knowledge_items(session_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_source_path ON knowledge_items(session_source_path);
+CREATE INDEX IF NOT EXISTS idx_knowledge_type ON knowledge_items(type);
 `
 
 const FTS_SQL = `

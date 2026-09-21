@@ -1,9 +1,9 @@
 import type { Database } from "bun:sqlite"
-import { discoverCursorProjects } from "../providers/cursor/discover"
-import { parseSessionFile } from "../providers/cursor/parse"
 import { closeDatabase, migrate, openDatabase } from "../db/schema"
 import { resolveDbPath } from "../db/paths"
+import { allProviders } from "../providers/registry"
 import type { IndexSummary } from "./types"
+import { rematchKnowledgeSessionIds } from "../db/knowledge-store"
 import {
   clearAllIndexedData,
   deleteProject,
@@ -55,59 +55,88 @@ export function formatIndexSummary(summary: IndexSummary): string {
   ].join("\n")
 }
 
+function projectKey(provider: string, sourcePath: string): string {
+  return `${provider}:${sourcePath}`
+}
+
 export async function sync(db = getDatabase()): Promise<IndexSummary> {
   migrate(db)
   const summary = emptySummary()
 
-  const discovered = await discoverCursorProjects()
-  const discoveredProjectPaths = new Set(discovered.map((project) => project.source_path))
-  const discoveredSessionPaths = new Set(
-    discovered.flatMap((project) => project.sessions.map((session) => session.source_path)),
-  )
-
+  const discoveredProjectKeys = new Set<string>()
+  const discoveredSessionPaths = new Set<string>()
   const indexedProjects = listIndexedProjects(db)
-  const indexedProjectsByPath = new Map(indexedProjects.map((project) => [project.source_path, project]))
+  const indexedProjectsByKey = new Map(
+    indexedProjects.map((project) => [projectKey(project.provider, project.source_path), project]),
+  )
   const indexedSessions = listIndexedSessions(db)
   const indexedSessionsByPath = new Map(
     indexedSessions.map((session) => [session.source_path, session]),
   )
 
-  for (const project of discovered) {
-    const existing = indexedProjectsByPath.get(project.source_path)
-    const projectId = upsertProject(db, project.provider, project.name, project.source_path)
+  for (const provider of allProviders()) {
+    let projects
+    try {
+      projects = await provider.discoverProjects()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`Failed to discover ${provider.id} projects: ${message}`)
+      continue
+    }
 
-    if (existing) summary.projectsUpdated++
-    else summary.projectsAdded++
+    for (const project of projects) {
+      const key = projectKey(provider.id, project.sourcePath)
+      discoveredProjectKeys.add(key)
 
-    for (const session of project.sessions) {
-      const indexed = indexedSessionsByPath.get(session.source_path)
-      const unchanged =
-        indexed &&
-        indexed.source_mtime === session.source_mtime &&
-        indexed.source_size === session.source_size
+      const existing = indexedProjectsByKey.get(key)
+      const projectId = upsertProject(db, provider.id, project.name, project.sourcePath)
 
-      if (unchanged) {
-        summary.sessionsSkipped++
+      if (existing) summary.projectsUpdated++
+      else summary.projectsAdded++
+
+      let sessions
+      try {
+        sessions = await provider.discoverSessions(project)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(
+          `Failed to discover ${provider.id} sessions for ${project.sourcePath}: ${message}`,
+        )
         continue
       }
 
-      try {
-        const parsed = await parseSessionFile(session.source_path)
-        importSession(
-          db,
-          projectId,
-          session.source_path,
-          session.source_mtime,
-          session.source_size,
-          parsed,
-        )
-        summary.eventsIndexed += parsed.events.length
+      for (const session of sessions) {
+        discoveredSessionPaths.add(session.sourcePath)
 
-        if (indexed) summary.sessionsUpdated++
-        else summary.sessionsAdded++
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        console.error(`Failed to index session ${session.source_path}: ${message}`)
+        const indexed = indexedSessionsByPath.get(session.sourcePath)
+        const unchanged =
+          indexed &&
+          indexed.source_mtime === session.sourceMtime &&
+          indexed.source_size === session.sourceSize
+
+        if (unchanged) {
+          summary.sessionsSkipped++
+          continue
+        }
+
+        try {
+          const parsed = await provider.loadSession(session)
+          importSession(
+            db,
+            projectId,
+            session.sourcePath,
+            session.sourceMtime,
+            session.sourceSize,
+            parsed,
+          )
+          summary.eventsIndexed += parsed.events.length
+
+          if (indexed) summary.sessionsUpdated++
+          else summary.sessionsAdded++
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          console.error(`Failed to index session ${session.sourcePath}: ${message}`)
+        }
       }
     }
   }
@@ -120,11 +149,13 @@ export async function sync(db = getDatabase()): Promise<IndexSummary> {
   }
 
   for (const project of indexedProjects) {
-    if (!discoveredProjectPaths.has(project.source_path)) {
+    if (!discoveredProjectKeys.has(projectKey(project.provider, project.source_path))) {
       deleteProject(db, project.id)
       summary.projectsRemoved++
     }
   }
+
+  rematchKnowledgeSessionIds(db)
 
   return summary
 }

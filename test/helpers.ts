@@ -11,6 +11,7 @@ import type { Message } from "../src/core/types"
 export const FIXTURE_ROOT = join(import.meta.dir, "..", "fixtures")
 export const FIXTURE_PROJECTS = join(FIXTURE_ROOT, "projects")
 export const FIXTURE_PLANS = join(FIXTURE_ROOT, "plans")
+export const FIXTURE_CLAUDE_PROJECTS = join(FIXTURE_ROOT, "claude-code", "projects")
 
 export function sessionPath(uuid: string): string {
   return join(
@@ -36,6 +37,7 @@ export function createTempDbPath(): string {
 export function setupTestEnv(options: {
   fixtureRoot?: string
   dbPath: string
+  claudeProjectsDir?: string
 }): void {
   const projectsDir = options.fixtureRoot
     ? join(options.fixtureRoot, "projects")
@@ -43,6 +45,11 @@ export function setupTestEnv(options: {
   const plansDir = options.fixtureRoot ? join(options.fixtureRoot, "plans") : FIXTURE_PLANS
   process.env.CURSOR_CHAT_HISTORY_DIR = projectsDir
   process.env.CURSOR_PLANS_DIR = plansDir
+  process.env.CLAUDE_PROJECTS_DIR =
+    options.claudeProjectsDir ?? join(tmpdir(), `ag-explorer-no-claude-${Date.now()}`)
+  if (!options.claudeProjectsDir) {
+    ensureDir(process.env.CLAUDE_PROJECTS_DIR)
+  }
   process.env.AG_EXPLORER_DB_PATH = options.dbPath
   resetDatabase()
   setDatabase(openDatabase(options.dbPath))

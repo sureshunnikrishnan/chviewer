@@ -147,6 +147,11 @@ export function sessionFilterSpec(session: string | undefined): EventFilterSpec 
   return { sql: "s.title LIKE ? ESCAPE '\\'", params: [`%${escapeLike(session)}%`] }
 }
 
+export function providerFilterSpec(provider: string | undefined): EventFilterSpec | null {
+  if (!provider) return null
+  return { sql: "p.provider = ?", params: [provider] }
+}
+
 function escapeLike(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")
 }
@@ -168,6 +173,7 @@ export function buildFilterClauses(filters: SearchFilters): {
   append(sessionFilterSpec(filters.session))
   append(roleFilterSpec(filters.role))
   append(eventFilterSpec(filters.event))
+  append(providerFilterSpec(filters.provider))
 
   if (filters.before !== undefined) {
     where.push("s.updated_at <= ?")

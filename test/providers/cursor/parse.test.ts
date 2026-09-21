@@ -92,7 +92,7 @@ describe("parseSessionContent", () => {
 
     const parsed = parseSessionContent(`${raw}\n`, 1000, "session")
     expect(parsed.events[0]?.kind).toBe("file_edit")
-    expect(parsed.events[0]?.payload.editKind).toBe("delete")
+    expect(parsed.events[0]?.payload.editKind).toBe("Delete")
   })
 
   test("parses large conversation fixture", async () => {

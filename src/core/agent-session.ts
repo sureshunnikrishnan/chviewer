@@ -13,11 +13,19 @@ export type TimelineLabel =
 export type ProjectRef = {
   id: number
   name: string
+  sourcePath?: string
 }
 
 export type PlanRef = {
   paths: string[]
   name?: string
+}
+
+export type FileRelation = "read" | "edited" | "created" | "deleted"
+
+export type SessionFile = {
+  path: string
+  relations: FileRelation[]
 }
 
 export type AgentEventBase = {
@@ -126,8 +134,10 @@ export type AgentSession = {
   project: ProjectRef
   startedAt?: Date
   updatedAt?: Date
-  source: "cursor"
+  source: string
+  sourcePath: string
   events: AgentEvent[]
+  files: SessionFile[]
   plan?: PlanRef
 }
 

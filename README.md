@@ -1,8 +1,8 @@
 # AGExplorer
 
-A terminal explorer for AI coding sessions — built with [OpenTUI](https://opentui.com) and backed by [Cursor](https://cursor.com) agent transcripts.
+A terminal explorer for AI coding sessions — built with [OpenTUI](https://opentui.com) and backed by pluggable session providers (Cursor and Claude Code today).
 
-Understand how a session unfolded (reads, edits, commands, errors) without rereading the full conversation. Runs entirely on your machine; it only reads local Cursor transcript and plan files — nothing is uploaded or sent over the network.
+Understand how a session unfolded (reads, edits, commands, errors) without rereading the full conversation. Runs entirely on your machine; it only reads local agent transcript files — nothing is uploaded or sent over the network.
 
 ![AGExplorer demo](docs/assets/demo.gif)
 
@@ -11,7 +11,11 @@ Understand how a session unfolded (reads, edits, commands, errors) without rerea
 ## Features
 
 - **Session Explorer** — typed timeline shows execution path: USER, PLAN, READ, EDIT, RUN, ERROR, AGENT, …
+- **Git-aware sessions** — session files plus nearby Git commits and diffs (heuristic correlation, not authorship claims)
 - **Session summary** — deterministic stats (files read/edited, commands run, failures, tool calls)
+- **Session intelligence (v0.8)** — derived problem, files, commands, errors, languages, libraries, and session outcome
+- **Knowledge bookmarks** — press `k` on a timeline event to save it as durable knowledge in SQLite
+- Optional deterministic auto-extraction of knowledge candidates (`AG_EXPLORER_AUTO_KNOWLEDGE=1`; no LLM)
 - **Category filters** — narrow timeline to messages, files, commands, errors, tools, or plans
 - **Error navigation** — `Ctrl+]` cycles through errors in the current view
 - Event details shown on selection (diffs, commands, reads); Enter focuses the detail pane
@@ -65,7 +69,10 @@ Values are loaded from `.env` in the project root (existing shell environment va
 | --- | --- |
 | `CURSOR_CHAT_HISTORY_DIR` | Cursor projects root (dirs with `agent-transcripts/`) |
 | `CURSOR_PLANS_DIR` | Cursor plans folder (`*.plan.md`); defaults to `$HOME/.cursor/plans` |
+| `CLAUDE_PROJECTS_DIR` | Claude Code projects root; defaults to `$HOME/.claude/projects` |
+| `CLAUDE_CONFIG_DIR` | Claude Code config root; when set, projects are read from `<dir>/projects` |
 | `AG_EXPLORER_DB_PATH` | Local SQLite index path; defaults to `$HOME/.ag-explorer/index.sqlite` |
+| `AG_EXPLORER_AUTO_KNOWLEDGE` | When `1`/`true`, auto-save heuristic knowledge candidates on session load (default off) |
 
 `~`, `$HOME`, and `${HOME}` in values are expanded.
 
@@ -78,7 +85,9 @@ See [`.env.example`](.env.example) for a portable template (no machine-specific 
 
 ## Data layout
 
-AGExplorer reads Cursor's local on-disk layout:
+AGExplorer reads each provider's local on-disk layout. Provider-specific metadata stays in SQLite `payload_json`; the normalized schema is shared.
+
+### Cursor
 
 ```
 ~/.cursor/projects/
@@ -95,9 +104,20 @@ Workspace slugs often look like `Users-<username>-workspace-<path-segments>`. AG
 
 Only top-level chat JSONL files are listed (`<uuid>/<uuid>.jsonl`). Subagent transcripts under `subagents/` are not shown.
 
+### Claude Code
+
+```
+~/.claude/projects/
+  <encoded-working-directory>/
+    <session-id>.jsonl
+    sessions-index.json   # optional title hints
+```
+
+Only top-level `*.jsonl` session files are listed. Subagent and tool-result sidecar directories are not shown. Claude Code sessions do not expose Cursor-style plan files; the plans timeline filter is hidden for these sessions.
+
 ## Local index
 
-AGExplorer maintains a derived SQLite index under `AG_EXPLORER_DB_PATH`. Cursor transcript files remain the source of truth.
+AGExplorer maintains a derived SQLite index under `AG_EXPLORER_DB_PATH`. Provider transcript files remain the source of truth.
 
 On startup, AGExplorer syncs only new or changed sessions, then reads projects, sessions, and messages from SQLite. Deleting the index file and restarting recreates the same history from source files.
 
@@ -107,9 +127,14 @@ ag-explorer reindex   # wipe and rebuild the index from source files
 ag-explorer search "JWT" --project backend
 ag-explorer export "Implement JWT auth" --format markdown
 ag-explorer export 42 --format json -o session.json
+ag-explorer git "Fix search bug"
+ag-explorer export 42 --format json --git
+ag-explorer intelligence "Fix search bug"
+ag-explorer knowledge
+ag-explorer knowledge 42
 ```
 
-After upgrading, run `ag-explorer reindex` once so structured event kinds, tool commands, paths, and errors are indexed correctly (older rows used coarse message/tool_call kinds).
+After upgrading, run `ag-explorer reindex` once so structured event kinds, tool commands, paths, errors, and session file relationships are indexed correctly (older rows used coarse message/tool_call kinds).
 
 ### Upgrading from a previous install
 
@@ -123,7 +148,7 @@ Post-upgrade custom `AG_EXPLORER_DB_PATH` locations are left unchanged.
 
 ## Clipboard
 
-Copy (`y` / `Ctrl+Y`) tries platform clipboard tools in order:
+Copy (`Ctrl+Y`) tries platform clipboard tools in order:
 
 | Platform | Backend |
 | --- | --- |
@@ -151,15 +176,20 @@ ag-explorer index
 
 ## Controls
 
+- Header provider chips show providers configured in `.env` (e.g. `CURSOR_CHAT_HISTORY_DIR`, `CLAUDE_PROJECTS_DIR`); the active provider is bracketed (`[Cursor]`)
+- `Ctrl+P` — cycle the active provider when more than one is configured (filters projects and search)
 - `↑` / `↓` — move through projects, sessions, timeline events, or search results
-- `0`–`6` — category filter: all, messages, files, commands, errors, tools, plans (when not typing in filter/search)
+- `0`–`6` — category filter: all, messages, files, commands, errors, tools, plans (plans omitted when the loaded provider has no plan support)
 - `Ctrl+]` — jump to the next error in the filtered timeline (expands detail; wraps)
 - `/` — open cross-session search
+- `Ctrl+G` — open Git context for the loaded session (session files, nearby commits, Git diffs)
+- `Ctrl+I` — open session intelligence (outcome, derived fields, saved knowledge)
+- `k` — bookmark the selected timeline event as knowledge
 - `Ctrl+[` — show/hide the projects pane (hidden pane is skipped in Tab focus)
 - `Tab` / `Shift+Tab` — switch focus (projects → sessions → filter → timeline → detail; or search input → results). Tabbing away from projects (or Enter on a project) hides the projects pane and focuses sessions; the active project name stays in the Sessions title
 - `Enter` — expand/collapse timeline detail; confirm project and hide projects pane; run search; open a search hit and jump to the matching event
 - `Esc` — leave search mode
-- `y` or `Ctrl+Y` — copy the selected event detail, or the full session timeline when detail is collapsed
+- `Ctrl+Y` — copy the selected event detail, or the full session timeline when detail is collapsed
 - Type in the timeline filter to narrow events within the loaded session (combines with category filter)
 - `Ctrl+C` — quit
 
@@ -171,7 +201,12 @@ After upgrading to structured sessions, run `ag-explorer reindex` once so existi
 
 ## Privacy
 
-AGExplorer reads files under your Cursor data directories (chat transcripts and plans). Do not commit `.env`, transcript dumps, or any paths that identify your machine or user account.
+AGExplorer reads files under your local agent data directories (Cursor transcripts/plans, Claude Code transcripts, etc.). Do not commit `.env`, transcript dumps, or any paths that identify your machine or user account.
+
+## Documentation
+
+- [Design & Architecture](docs/design-and-architecture.md) — system structure, data flow, API / CLI / UI layers
+- [User Guide](docs/user-guide.md) — installation, configuration, task walkthroughs, and full command reference
 
 ## Contributing
 

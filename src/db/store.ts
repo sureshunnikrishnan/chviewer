@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite"
-import type { AgentSession } from "../core/agent-session"
+import type { AgentSession, SessionFile } from "../core/agent-session"
 import type {
   Message,
   Project,
@@ -14,8 +14,7 @@ import {
   parseSearchQuery,
   truncateSnippet,
 } from "../core/search-query"
-import { projectCursorEvents, resolvePlanFromEvents } from "../providers/cursor/project"
-import { resolvePlanPathsFromPayloads } from "../providers/cursor/plans"
+import { getProvider } from "../providers/registry"
 import { getSessionEvents } from "../core/writer"
 
 const MAX_SESSIONS = 50
@@ -32,22 +31,27 @@ type SearchRow = {
   snippet_text: string
 }
 
-export function listProjects(db: Database): Project[] {
+export function listProjects(db: Database, provider?: string): Project[] {
+  const filterSql = provider ? " WHERE p.provider = ?" : ""
+  const params = provider ? [provider] : []
+
   const rows = db
     .query(
       `SELECT
          p.id,
          p.name,
+         p.provider,
          COUNT(s.id) AS session_count,
          COALESCE(MAX(s.updated_at), 0) AS last_session_at
        FROM projects p
-       LEFT JOIN sessions s ON s.project_id = p.id
+       LEFT JOIN sessions s ON s.project_id = p.id${filterSql}
        GROUP BY p.id
        ORDER BY last_session_at DESC`,
     )
-    .all() as Array<{
+    .all(...params) as Array<{
     id: number
     name: string
+    provider: string
     session_count: number
     last_session_at: number
   }>
@@ -55,6 +59,7 @@ export function listProjects(db: Database): Project[] {
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
+    provider: row.provider,
     sessionCount: row.session_count,
     lastSessionAt: row.last_session_at,
   }))
@@ -101,6 +106,15 @@ export async function getSessionTranscript(
   db: Database,
   sessionId: number,
 ): Promise<SessionTranscript> {
+  const row = db
+    .query(
+      `SELECT p.provider
+       FROM sessions s
+       JOIN projects p ON p.id = s.project_id
+       WHERE s.id = ?`,
+    )
+    .get(sessionId) as { provider: string } | null
+
   const events = getSessionEvents(db, sessionId)
   const messages: Message[] = events
     .filter(
@@ -113,9 +127,37 @@ export async function getSessionTranscript(
       text: event.text,
     }))
 
-  const planPaths = await resolvePlanPathsFromPayloads(events.map((event) => event.payload))
+  let planPaths: string[] = []
+  if (row) {
+    const provider = getProvider(row.provider)
+    if (provider.capabilities.plans && provider.resolvePlans) {
+      const plan = await provider.resolvePlans(events)
+      planPaths = plan?.paths ?? []
+    }
+  }
 
   return { messages, planPaths }
+}
+
+export function getSessionFiles(db: Database, sessionId: number): SessionFile[] {
+  const rows = db
+    .query(
+      `SELECT path, relation FROM session_files
+       WHERE session_id = ?
+       ORDER BY path ASC, relation ASC`,
+    )
+    .all(sessionId) as Array<{ path: string; relation: SessionFile["relations"][number] }>
+
+  const byPath = new Map<string, SessionFile["relations"]>()
+  for (const row of rows) {
+    const relations = byPath.get(row.path) ?? []
+    if (!relations.includes(row.relation)) {
+      relations.push(row.relation)
+    }
+    byPath.set(row.path, relations)
+  }
+
+  return [...byPath.entries()].map(([path, relations]) => ({ path, relations }))
 }
 
 export async function getAgentSession(db: Database, sessionId: number): Promise<AgentSession | null> {
@@ -126,8 +168,10 @@ export async function getAgentSession(db: Database, sessionId: number): Promise<
          s.title,
          s.started_at,
          s.updated_at,
+         s.source_path,
          s.project_id,
          p.name AS project_name,
+         p.source_path AS project_source_path,
          p.provider
        FROM sessions s
        JOIN projects p ON p.id = s.project_id
@@ -139,27 +183,38 @@ export async function getAgentSession(db: Database, sessionId: number): Promise<
         title: string
         started_at: number | null
         updated_at: number
+        source_path: string
         project_id: number
         project_name: string
+        project_source_path: string
         provider: string
       }
     | null
 
   if (!row) return null
 
+  const provider = getProvider(row.provider)
   const storedEvents = getSessionEvents(db, sessionId)
-  const planPaths = await resolvePlanPathsFromPayloads(storedEvents.map((event) => event.payload))
-  const events = projectCursorEvents(storedEvents)
-  const plan = resolvePlanFromEvents(events, planPaths)
+  const events = provider.projectEvents(storedEvents)
+  const plan =
+    provider.capabilities.plans && provider.resolvePlans
+      ? await provider.resolvePlans(storedEvents)
+      : undefined
 
   return {
     id: row.id,
     title: row.title,
-    project: { id: row.project_id, name: row.project_name },
+    project: {
+      id: row.project_id,
+      name: row.project_name,
+      sourcePath: row.project_source_path,
+    },
     startedAt: row.started_at ? new Date(row.started_at) : undefined,
     updatedAt: new Date(row.updated_at),
-    source: row.provider === "cursor" ? "cursor" : "cursor",
+    source: row.provider,
+    sourcePath: row.source_path,
     events,
+    files: getSessionFiles(db, sessionId),
     plan,
   }
 }

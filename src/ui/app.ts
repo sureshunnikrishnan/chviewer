@@ -12,22 +12,49 @@ import {
   type KeyEvent,
   type SelectOption,
 } from "@opentui/core"
-import type { AgentEvent, AgentSession } from "../core/agent-session"
+import type { AgentEvent, AgentSession, SessionFile } from "../core/agent-session"
 import { timelineEvents } from "../core/agent-session"
 import { copyTextToClipboard } from "../core/clipboard"
 import { formatEventPlain, formatSessionPlain } from "../core/export"
+import type { GitSessionContext, NearbyCommit } from "../core/git"
+import { resolveGitSessionContext } from "../core/git"
+import {
+  formatGitHeader,
+  formatNearbyCommitDetail,
+  gitCommitOptionDescription,
+  gitCommitOptionLabel,
+  gitFileOptionDescription,
+  gitFileOptionLabel,
+  loadGitFilePatch,
+} from "../core/git-format"
 import { formatConversationDate } from "../core/format"
+import { knowledgeFromEvent } from "../core/knowledge"
+import { applyAutoKnowledge } from "../core/knowledge-sync"
+import {
+  formatCompactOutcome,
+  formatSessionIntelligenceReport,
+  formatSessionOutcome,
+  sessionOutcome,
+} from "../core/session-intelligence"
 import { formatSessionSummaryLine, sessionSummary } from "../core/session-summary"
 import { getDatabase, index } from "../core/index"
+import type { KnowledgeItem } from "../core/knowledge"
+import { formatKnowledgeItemPlain } from "../core/knowledge"
+import { insertKnowledge, listKnowledgeForSession } from "../db/knowledge-store"
 import type { Project, Session } from "../core/types"
+import { listConfiguredProviders } from "../providers/configured"
+import { getProvider } from "../providers/registry"
 import { getAgentSession, listProjects, listSessions, searchSessions } from "../db/store"
+import { formatProviderHeaderLine } from "./providers"
 import {
   formatEventDetailPlain,
   formatFileEditHeader,
   formatFileEditUnifiedDiff,
 } from "./event-detail"
 import {
-  CATEGORY_BY_KEY,
+  TIMELINE_CATEGORIES,
+  availableTimelineCategories,
+  categoryFilterKeys,
   formatCategoryFilterLine,
   formatTimelineEventName,
   filterTimelineEvents,
@@ -41,6 +68,18 @@ type SearchJumpTarget = {
   sessionId: number
   eventId: number
 }
+
+type GitFileTarget = {
+  kind: "file"
+  file: SessionFile
+}
+
+type GitCommitTarget = {
+  kind: "commit"
+  commit: NearbyCommit
+}
+
+type GitSelectionTarget = GitFileTarget | GitCommitTarget
 
 export async function runApp(): Promise<void> {
   await index()
@@ -92,6 +131,13 @@ async function buildUi(
       flexShrink: 0,
     }),
   )
+  const headerProviders = new TextRenderable(renderer, {
+    id: "header-providers",
+    content: "",
+    fg: theme.title,
+    flexShrink: 0,
+  })
+  header.add(headerProviders)
   const headerProject = new TextRenderable(renderer, {
     id: "header-project",
     content: "",
@@ -120,20 +166,53 @@ async function buildUi(
     backgroundColor: theme.panel,
   })
 
-  const projectOptions: SelectOption[] =
-    projects.length === 0
-      ? [
-          {
-            name: "(none found)",
-            description: "No indexed projects — run ag-explorer index",
-            value: null,
-          },
-        ]
-      : projects.map((project) => ({
-          name: project.name,
-          description: `${project.sessionCount} session${project.sessionCount === 1 ? "" : "s"} · last ${formatConversationDate(project.lastSessionAt)}`,
-          value: project.id,
-        }))
+  const configuredProviders = listConfiguredProviders()
+  const allProjects = projects
+
+  function initialProviderId(): string {
+    if (configuredProviders.length === 0) return ""
+    for (const provider of configuredProviders) {
+      if (allProjects.some((project) => project.provider === provider.id)) {
+        return provider.id
+      }
+    }
+    return configuredProviders[0]!.id
+  }
+
+  let activeProviderId = initialProviderId()
+
+  function buildProjectOptions(filteredProjects: Project[]): SelectOption[] {
+    if (configuredProviders.length === 0) {
+      return [
+        {
+          name: "(none configured)",
+          description: "Add provider paths to .env and run ag-explorer index",
+          value: null,
+        },
+      ]
+    }
+
+    if (filteredProjects.length === 0) {
+      return [
+        {
+          name: "(none found)",
+          description: "No indexed projects for this provider — run ag-explorer index",
+          value: null,
+        },
+      ]
+    }
+
+    return filteredProjects.map((project) => ({
+      name: project.name,
+      description: `${project.sessionCount} session${project.sessionCount === 1 ? "" : "s"} · last ${formatConversationDate(project.lastSessionAt)}`,
+      value: project.id,
+    }))
+  }
+
+  function filteredProjectsForActiveProvider(): Project[] {
+    if (!activeProviderId) return []
+    return allProjects.filter((project) => project.provider === activeProviderId)
+  }
 
   const selectColors = {
     backgroundColor: theme.panel,
@@ -150,7 +229,7 @@ async function buildUi(
     id: "project-select",
     width: "100%",
     height: "100%",
-    options: projectOptions,
+    options: buildProjectOptions(filteredProjectsForActiveProvider()),
     ...selectColors,
     showDescription: true,
     wrapSelection: true,
@@ -236,7 +315,7 @@ async function buildUi(
 
   const summaryBox = new BoxRenderable(renderer, {
     id: "summary-box",
-    height: 2,
+    height: 3,
     flexShrink: 0,
     marginBottom: 1,
     paddingLeft: 1,
@@ -397,6 +476,152 @@ async function buildUi(
   searchBox.add(searchResultsBox)
   timelinePane.add(searchBox)
 
+  const gitBox = new BoxRenderable(renderer, {
+    id: "git-box",
+    flexDirection: "column",
+    flexGrow: 1,
+    flexShrink: 1,
+    visible: false,
+  })
+
+  const gitHeaderBox = new BoxRenderable(renderer, {
+    id: "git-header-box",
+    height: 2,
+    flexShrink: 0,
+    marginBottom: 1,
+    paddingLeft: 1,
+    backgroundColor: theme.panel,
+  })
+
+  const gitHeaderText = new TextRenderable(renderer, {
+    id: "git-header-text",
+    content: "",
+    fg: theme.footerText,
+  })
+  gitHeaderBox.add(gitHeaderText)
+
+  const gitNoteText = new TextRenderable(renderer, {
+    id: "git-note-text",
+    content: "",
+    fg: theme.muted,
+    marginBottom: 1,
+    paddingLeft: 1,
+  })
+
+  const gitListsRow = new BoxRenderable(renderer, {
+    id: "git-lists-row",
+    flexDirection: "row",
+    flexGrow: 1,
+    flexShrink: 1,
+    gap: 1,
+  })
+
+  const gitFilesBox = new BoxRenderable(renderer, {
+    id: "git-files-box",
+    flexGrow: 1,
+    flexShrink: 1,
+    border: true,
+    borderColor: theme.border,
+    focusedBorderColor: theme.borderFocus,
+    title: " Session Files ",
+    titleAlignment: "left",
+    backgroundColor: theme.panel,
+  })
+
+  const gitFilesSelect = new SelectRenderable(renderer, {
+    id: "git-files-select",
+    width: "100%",
+    height: "100%",
+    options: [{ name: "No files in session", description: "", value: null }],
+    ...selectColors,
+    showDescription: true,
+    wrapSelection: false,
+    showScrollIndicator: true,
+  })
+  gitFilesBox.add(gitFilesSelect)
+
+  const gitCommitsBox = new BoxRenderable(renderer, {
+    id: "git-commits-box",
+    flexGrow: 1,
+    flexShrink: 1,
+    border: true,
+    borderColor: theme.border,
+    focusedBorderColor: theme.borderFocus,
+    title: " Nearby Commits ",
+    titleAlignment: "left",
+    backgroundColor: theme.panel,
+  })
+
+  const gitCommitsSelect = new SelectRenderable(renderer, {
+    id: "git-commits-select",
+    width: "100%",
+    height: "100%",
+    options: [{ name: "No nearby commits", description: "", value: null }],
+    ...selectColors,
+    showDescription: true,
+    wrapSelection: false,
+    showScrollIndicator: true,
+  })
+  gitCommitsBox.add(gitCommitsSelect)
+
+  gitListsRow.add(gitFilesBox)
+  gitListsRow.add(gitCommitsBox)
+  gitBox.add(gitHeaderBox)
+  gitBox.add(gitNoteText)
+  gitBox.add(gitListsRow)
+  timelinePane.add(gitBox)
+
+  const intelligenceBox = new BoxRenderable(renderer, {
+    id: "intelligence-box",
+    flexDirection: "column",
+    flexGrow: 1,
+    flexShrink: 1,
+    visible: false,
+  })
+
+  const intelligenceHeaderBox = new BoxRenderable(renderer, {
+    id: "intelligence-header-box",
+    height: 2,
+    flexShrink: 0,
+    marginBottom: 1,
+    paddingLeft: 1,
+    backgroundColor: theme.panel,
+  })
+
+  const intelligenceHeaderText = new TextRenderable(renderer, {
+    id: "intelligence-header-text",
+    content: "",
+    fg: theme.footerText,
+  })
+  intelligenceHeaderBox.add(intelligenceHeaderText)
+
+  const intelligenceKnowledgeBox = new BoxRenderable(renderer, {
+    id: "intelligence-knowledge-box",
+    flexGrow: 1,
+    flexShrink: 1,
+    border: true,
+    borderColor: theme.border,
+    focusedBorderColor: theme.borderFocus,
+    title: " Knowledge ",
+    titleAlignment: "left",
+    backgroundColor: theme.panel,
+  })
+
+  const intelligenceKnowledgeSelect = new SelectRenderable(renderer, {
+    id: "intelligence-knowledge-select",
+    width: "100%",
+    height: "100%",
+    options: [{ name: "No knowledge items", description: "", value: null }],
+    ...selectColors,
+    showDescription: true,
+    wrapSelection: false,
+    showScrollIndicator: true,
+  })
+  intelligenceKnowledgeBox.add(intelligenceKnowledgeSelect)
+  intelligenceBox.add(intelligenceHeaderBox)
+  intelligenceBox.add(intelligenceKnowledgeBox)
+  timelinePane.add(intelligenceBox)
+
   const footer = new BoxRenderable(renderer, {
     id: "footer",
     height: 3,
@@ -426,22 +651,78 @@ async function buildUi(
   const allFocusBoxes = [projectPane, sessionPane, filterBox, timelineListBox, detailBox] as const
   const searchFocusables = [searchInput, searchSelect] as const
   const searchFocusBoxes = [searchInputBox, searchResultsBox] as const
+  const gitFocusables = [gitFilesSelect, gitCommitsSelect, detailScroll] as const
+  const gitFocusBoxes = [gitFilesBox, gitCommitsBox, detailBox] as const
+  const intelligenceFocusables = [intelligenceKnowledgeSelect, detailScroll] as const
+  const intelligenceFocusBoxes = [intelligenceKnowledgeBox, detailBox] as const
   let focusIndex = 0
   let searchFocusIndex = 0
+  let gitFocusIndex = 0
   let projectsExpanded = true
 
-  const projectById = new Map(projects.map((project) => [project.id, project]))
+  let projectById = new Map(allProjects.map((project) => [project.id, project]))
   let sessionsById = new Map<number, Session>()
   let currentSession: AgentSession | null = null
   let visibleEvents: AgentEvent[] = []
   let activeCategory: TimelineCategory = "all"
+  let timelineCategories: TimelineCategory[] = TIMELINE_CATEGORIES
+  let timelineCategoryKeys = categoryFilterKeys(TIMELINE_CATEGORIES)
   let detailExpanded = true
   let searchMode = false
+  let gitMode = false
+  let intelligenceMode = false
+  let sessionKnowledge: KnowledgeItem[] = []
+  let gitContext: GitSessionContext | null = null
+  let gitContextSessionId: number | null = null
+  let gitContextLoading = false
   let statusResetTimer: ReturnType<typeof setTimeout> | null = null
   let loadGeneration = 0
 
   function defaultFooter(): string {
-    return defaultFooterText(searchMode, projectsExpanded)
+    return defaultFooterText(
+      searchMode,
+      gitMode,
+      intelligenceMode,
+      projectsExpanded,
+      timelineCategories,
+      configuredProviders.length > 1,
+    )
+  }
+
+  const refreshProviderHeader = () => {
+    headerProviders.content = formatProviderHeaderLine(activeProviderId, configuredProviders)
+    headerProviders.fg = configuredProviders.length === 0 ? theme.muted : theme.title
+  }
+
+  const applyActiveProvider = async () => {
+    refreshProviderHeader()
+    const visibleProjects = filteredProjectsForActiveProvider()
+    projectById = new Map(visibleProjects.map((project) => [project.id, project]))
+    projectSelect.options = buildProjectOptions(visibleProjects)
+    projectSelect.setSelectedIndex(0)
+    footerText.content = defaultFooter()
+    await loadSelectedProject()
+  }
+
+  const cycleProvider = (direction: 1 | -1) => {
+    if (configuredProviders.length <= 1) return
+
+    const currentIndex = configuredProviders.findIndex((provider) => provider.id === activeProviderId)
+    const startIndex = currentIndex >= 0 ? currentIndex : 0
+    const nextIndex = (startIndex + direction + configuredProviders.length) % configuredProviders.length
+    activeProviderId = configuredProviders[nextIndex]!.id
+    void applyActiveProvider()
+    const label = configuredProviders[nextIndex]!.label
+    flashFooter(`Provider: ${label}`)
+  }
+
+  const updateTimelineCapabilities = (source?: string) => {
+    const capabilities = source ? getProvider(source).capabilities : undefined
+    timelineCategories = availableTimelineCategories(capabilities)
+    timelineCategoryKeys = categoryFilterKeys(timelineCategories)
+    if (!timelineCategories.includes(activeCategory)) {
+      activeCategory = "all"
+    }
   }
 
   const focusTargets = () => {
@@ -484,7 +765,13 @@ async function buildUi(
 
   const updateHeaderProject = (project: Project | null) => {
     if (!project) {
-      headerProject.content = projects.length === 0 ? "No projects indexed" : "No project selected"
+      const visibleCount = filteredProjectsForActiveProvider().length
+      headerProject.content =
+        configuredProviders.length === 0
+          ? "No providers configured in .env"
+          : visibleCount === 0
+            ? "No projects indexed for this provider"
+            : "No project selected"
       headerProject.fg = theme.muted
       return
     }
@@ -539,7 +826,47 @@ async function buildUi(
     summaryBox.visible = visible
     timelineListBox.visible = visible
     detailBox.visible = visible
-    searchBox.visible = !visible
+    searchBox.visible = false
+    gitBox.visible = false
+    intelligenceBox.visible = false
+    if (visible) {
+      detailBox.title = " Event Detail "
+    }
+  }
+
+  const setSearchPaneVisible = (visible: boolean) => {
+    filterBox.visible = !visible
+    categoryFilterBox.visible = !visible
+    summaryBox.visible = !visible
+    timelineListBox.visible = !visible
+    detailBox.visible = !visible
+    searchBox.visible = visible
+    gitBox.visible = false
+    intelligenceBox.visible = false
+  }
+
+  const setGitPaneVisible = (visible: boolean) => {
+    filterBox.visible = !visible
+    categoryFilterBox.visible = !visible
+    summaryBox.visible = !visible
+    timelineListBox.visible = !visible
+    searchBox.visible = false
+    gitBox.visible = visible
+    intelligenceBox.visible = false
+    detailBox.visible = true
+    detailBox.title = visible ? " Git Detail " : " Event Detail "
+  }
+
+  const setIntelligencePaneVisible = (visible: boolean) => {
+    filterBox.visible = !visible
+    categoryFilterBox.visible = !visible
+    summaryBox.visible = !visible
+    timelineListBox.visible = !visible
+    searchBox.visible = false
+    gitBox.visible = false
+    intelligenceBox.visible = visible
+    detailBox.visible = true
+    detailBox.title = visible ? " Intelligence Detail " : " Event Detail "
   }
 
   const setSearchFocus = (index: number) => {
@@ -548,6 +875,25 @@ async function buildUi(
     searchFocusBoxes.forEach((box) => box.blur())
     searchFocusables[searchFocusIndex].focus()
     searchFocusBoxes[searchFocusIndex].focus()
+  }
+
+  const setGitFocus = (index: number) => {
+    gitFocusIndex = (index + gitFocusables.length) % gitFocusables.length
+    gitFocusables.forEach((el) => el.blur())
+    gitFocusBoxes.forEach((box) => box.blur())
+    gitFocusables[gitFocusIndex].focus()
+    gitFocusBoxes[gitFocusIndex].focus()
+  }
+
+  let intelligenceFocusIndex = 0
+
+  const setIntelligenceFocus = (index: number) => {
+    intelligenceFocusIndex =
+      (index + intelligenceFocusables.length) % intelligenceFocusables.length
+    intelligenceFocusables.forEach((el) => el.blur())
+    intelligenceFocusBoxes.forEach((box) => box.blur())
+    intelligenceFocusables[intelligenceFocusIndex].focus()
+    intelligenceFocusBoxes[intelligenceFocusIndex].focus()
   }
 
   const flashFooter = (message: string, ok = true) => {
@@ -563,6 +909,16 @@ async function buildUi(
   const setFocus = (index: number) => {
     if (searchMode) {
       setSearchFocus(index)
+      return
+    }
+
+    if (gitMode) {
+      setGitFocus(index)
+      return
+    }
+
+    if (intelligenceMode) {
+      setIntelligenceFocus(index)
       return
     }
 
@@ -591,11 +947,68 @@ async function buildUi(
       summaryText.content = ""
       return
     }
-    summaryText.content = formatSessionSummaryLine(sessionSummary(currentSession.events))
+    summaryText.content =
+      formatSessionSummaryLine(sessionSummary(currentSession.events)) +
+      formatCompactOutcome(sessionOutcome(currentSession))
+  }
+
+  const refreshSessionKnowledge = () => {
+    if (!currentSession) {
+      sessionKnowledge = []
+      return
+    }
+    sessionKnowledge = listKnowledgeForSession(db, currentSession.id)
+  }
+
+  const refreshIntelligenceLists = () => {
+    if (!currentSession) {
+      intelligenceHeaderText.content = "No session loaded"
+      intelligenceKnowledgeSelect.options = [
+        { name: "No knowledge items", description: "", value: null },
+      ]
+      return
+    }
+
+    const outcome = sessionOutcome(currentSession)
+    intelligenceHeaderText.content = formatSessionOutcome(outcome).replace(/\n/g, "  ·  ")
+    intelligenceKnowledgeSelect.options =
+      sessionKnowledge.length === 0
+        ? [{ name: "No knowledge items — press k on timeline to bookmark", description: "", value: null }]
+        : sessionKnowledge.map((item) => ({
+            name: `[${item.type}] ${item.title}`,
+            description: item.source,
+            value: item.id,
+          }))
+  }
+
+  const renderIntelligenceDetail = (knowledgeId: number | null) => {
+    detailEditHeader.visible = false
+    detailDiff.visible = false
+    detailText.visible = true
+
+    if (!currentSession) {
+      detailText.content = "Select a session"
+      detailText.fg = theme.muted
+      return
+    }
+
+    if (knowledgeId !== null) {
+      const item = sessionKnowledge.find((entry) => entry.id === knowledgeId)
+      if (item) {
+        detailText.content = formatKnowledgeItemPlain(item)
+        detailText.fg = theme.text
+        detailScroll.scrollTop = 0
+        return
+      }
+    }
+
+    detailText.content = formatSessionIntelligenceReport(currentSession)
+    detailText.fg = theme.text
+    detailScroll.scrollTop = 0
   }
 
   const updateCategoryFilterLine = () => {
-    categoryFilterText.content = `Filter: ${formatCategoryFilterLine(activeCategory)}`
+    categoryFilterText.content = `Filter: ${formatCategoryFilterLine(activeCategory, timelineCategories)}`
   }
 
   const renderDetail = (event: AgentEvent | null, expanded: boolean) => {
@@ -699,7 +1112,11 @@ async function buildUi(
       return
     }
 
-    const groups = searchSessions(db, query)
+    const groups = searchSessions(
+      db,
+      query,
+      activeProviderId ? { provider: activeProviderId } : undefined,
+    )
     if (groups.length === 0) {
       searchSelect.options = [{ name: "No matches found", description: query, value: null }]
       return
@@ -724,6 +1141,171 @@ async function buildUi(
     setSearchFocus(1)
   }
 
+  const renderGitDetailText = (text: string) => {
+    detailEditHeader.visible = false
+    detailDiff.visible = false
+    detailText.visible = true
+    detailText.content = text
+    detailText.fg = theme.text
+    detailScroll.scrollTop = 0
+  }
+
+  const renderGitDetailPatch = (header: string, patch: string) => {
+    detailText.visible = false
+    detailEditHeader.visible = true
+    detailDiff.visible = true
+    detailEditHeader.content = header
+    detailEditHeader.fg = theme.text
+    detailDiff.diff = patch
+    detailScroll.scrollTop = 0
+  }
+
+  const refreshGitLists = (context: GitSessionContext) => {
+    gitHeaderText.content = formatGitHeader(context)
+    gitNoteText.content = context.heuristicNote
+
+    gitFilesSelect.options =
+      currentSession && currentSession.files.length > 0
+        ? currentSession.files.map((file) => ({
+            name: gitFileOptionLabel(file),
+            description: gitFileOptionDescription(file),
+            value: { kind: "file", file } satisfies GitFileTarget,
+          }))
+        : [{ name: "No files in session", description: "", value: null }]
+
+    gitCommitsSelect.options =
+      context.nearbyCommits.length > 0
+        ? context.nearbyCommits.map((commit) => ({
+            name: gitCommitOptionLabel(commit),
+            description: gitCommitOptionDescription(commit),
+            value: { kind: "commit", commit } satisfies GitCommitTarget,
+          }))
+        : [{ name: "No nearby commits in window", description: "", value: null }]
+  }
+
+  const showGitSelectionDetail = async (target: GitSelectionTarget) => {
+    if (!currentSession || !gitContext) return
+
+    if (target.kind === "commit") {
+      renderGitDetailText(formatNearbyCommitDetail(target.commit))
+      setGitFocus(2)
+      return
+    }
+
+    renderGitDetailText("Loading Git diff…")
+    setGitFocus(2)
+
+    try {
+      const loaded = await loadGitFilePatch(target.file, gitContext, currentSession.events)
+      if (loaded.patch) {
+        renderGitDetailPatch(loaded.header, loaded.patch)
+      } else {
+        renderGitDetailText(loaded.fallbackText ?? loaded.header)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      renderGitDetailText(`Failed to load Git diff:\n${message}`)
+    }
+  }
+
+  const ensureGitContext = async (): Promise<GitSessionContext | null> => {
+    if (!currentSession) return null
+    if (gitContext && gitContextSessionId === currentSession.id) return gitContext
+
+    gitContextLoading = true
+    gitHeaderText.content = "Loading Git context…"
+    gitNoteText.content = ""
+    gitFilesSelect.options = [{ name: "Loading…", description: "", value: null }]
+    gitCommitsSelect.options = [{ name: "Loading…", description: "", value: null }]
+
+    try {
+      const context = await resolveGitSessionContext(
+        currentSession,
+        currentSession.project.sourcePath,
+      )
+      gitContext = context
+      gitContextSessionId = currentSession.id
+      refreshGitLists(context)
+      return context
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      gitHeaderText.content = "Git context failed"
+      gitNoteText.content = message
+      return null
+    } finally {
+      gitContextLoading = false
+    }
+  }
+
+  const exitGitMode = () => {
+    gitMode = false
+    setTimelineVisible(true)
+    footerText.content = defaultFooter()
+    setFocus(focusIndex)
+    const selected = selectedTimelineEvent()
+    renderDetail(selected, detailExpanded)
+  }
+
+  const enterGitMode = async () => {
+    if (!currentSession) {
+      flashFooter("Select a session first", false)
+      return
+    }
+
+    intelligenceMode = false
+    gitMode = true
+    setGitPaneVisible(true)
+    footerText.content = gitFooterText()
+    setGitFocus(0)
+    renderGitDetailText("Select a session file or nearby commit")
+
+    await ensureGitContext()
+  }
+
+  const exitIntelligenceMode = () => {
+    intelligenceMode = false
+    setTimelineVisible(true)
+    footerText.content = defaultFooter()
+    setFocus(focusIndex)
+    const selected = selectedTimelineEvent()
+    renderDetail(selected, detailExpanded)
+  }
+
+  const enterIntelligenceMode = () => {
+    if (!currentSession) {
+      flashFooter("Select a session first", false)
+      return
+    }
+
+    gitMode = false
+    intelligenceMode = true
+    refreshSessionKnowledge()
+    refreshIntelligenceLists()
+    setIntelligencePaneVisible(true)
+    footerText.content = intelligenceFooterText()
+    setIntelligenceFocus(0)
+    renderIntelligenceDetail(null)
+  }
+
+  const bookmarkSelectedEvent = () => {
+    if (!currentSession) {
+      flashFooter("Select a session first", false)
+      return
+    }
+
+    const event = selectedTimelineEvent()
+    if (!event) {
+      flashFooter("Select a timeline event to bookmark", false)
+      return
+    }
+
+    const draft = knowledgeFromEvent(event, currentSession.sourcePath, currentSession.id)
+    const item = insertKnowledge(db, draft)
+    sessionKnowledge = [item, ...sessionKnowledge.filter((entry) => entry.id !== item.id)]
+    if (intelligenceMode) refreshIntelligenceLists()
+    flashFooter(`Saved knowledge: ${item.type}`)
+  }
+
   const exitSearchMode = () => {
     searchMode = false
     setTimelineVisible(true)
@@ -733,7 +1315,7 @@ async function buildUi(
 
   const enterSearchMode = () => {
     searchMode = true
-    setTimelineVisible(false)
+    setSearchPaneVisible(true)
     searchSelect.options = [{ name: "Type a query and press Enter", description: "", value: null }]
     footerText.content = searchFooterText()
     setSearchFocus(0)
@@ -830,6 +1412,7 @@ async function buildUi(
     const sessionId = selected?.value
     if (!sessionId || typeof sessionId !== "number") {
       currentSession = null
+      updateTimelineCapabilities()
       refreshTimeline()
       return
     }
@@ -837,6 +1420,7 @@ async function buildUi(
     const session = sessionsById.get(sessionId)
     if (!session) {
       currentSession = null
+      updateTimelineCapabilities()
       refreshTimeline()
       return
     }
@@ -846,11 +1430,25 @@ async function buildUi(
     detailText.fg = theme.muted
     activeCategory = "all"
     filterInput.value = ""
+    updateTimelineCapabilities(session.sourceProvider)
 
     try {
       const agentSession = await getAgentSession(db, sessionId)
       if (generation !== loadGeneration) return
+      if (!agentSession) {
+        currentSession = null
+        updateTimelineCapabilities()
+        timelineSelect.options = [{ name: "Session not found", description: "", value: null }]
+        detailText.content = "Session not found"
+        detailText.fg = theme.userLabel
+        return
+      }
       currentSession = agentSession
+      updateTimelineCapabilities(agentSession.source)
+      gitContext = null
+      gitContextSessionId = null
+      applyAutoKnowledge(db, agentSession)
+      refreshSessionKnowledge()
       refreshTimeline()
     } catch (error) {
       if (generation !== loadGeneration) return
@@ -914,10 +1512,20 @@ async function buildUi(
     renderDetail(selectedTimelineEvent(), true)
   })
 
+  intelligenceKnowledgeSelect.on(SelectRenderableEvents.SELECTION_CHANGED, () => {
+    const selected = intelligenceKnowledgeSelect.getSelectedOption()
+    const value = selected?.value
+    renderIntelligenceDetail(typeof value === "number" ? value : null)
+  })
+
   renderer.keyInput.on("keypress", (key: KeyEvent) => {
     if (key.name === "tab") {
       if (searchMode) {
         setSearchFocus(searchFocusIndex + (key.shift ? -1 : 1))
+      } else if (gitMode) {
+        setGitFocus(gitFocusIndex + (key.shift ? -1 : 1))
+      } else if (intelligenceMode) {
+        setIntelligenceFocus(intelligenceFocusIndex + (key.shift ? -1 : 1))
       } else if (
         !key.shift &&
         projectsExpanded &&
@@ -938,7 +1546,19 @@ async function buildUi(
       return
     }
 
-    if (key.name === "/" && !searchMode && focusedElement() !== filterInput) {
+    if (key.name === "escape" && gitMode) {
+      exitGitMode()
+      key.preventDefault()
+      return
+    }
+
+    if (key.name === "escape" && intelligenceMode) {
+      exitIntelligenceMode()
+      key.preventDefault()
+      return
+    }
+
+    if (key.name === "/" && !searchMode && !gitMode && !intelligenceMode && focusedElement() !== filterInput) {
       enterSearchMode()
       key.preventDefault()
       return
@@ -958,14 +1578,58 @@ async function buildUi(
       return
     }
 
-    const projectFocused = !searchMode && focusedElement() === projectSelect
+    if (gitMode && key.name === "return" && !gitContextLoading) {
+      const activeSelect = gitFocusables[gitFocusIndex]
+      const selected =
+        activeSelect === gitFilesSelect
+          ? gitFilesSelect.getSelectedOption()
+          : activeSelect === gitCommitsSelect
+            ? gitCommitsSelect.getSelectedOption()
+            : null
+      const value = selected?.value
+      if (value && typeof value === "object" && "kind" in value) {
+        void showGitSelectionDetail(value as GitSelectionTarget)
+      }
+      key.preventDefault()
+      return
+    }
+
+    if (
+      key.ctrl &&
+      key.name === "g" &&
+      !key.meta &&
+      !searchMode &&
+      !gitMode &&
+      !intelligenceMode
+    ) {
+      void enterGitMode()
+      key.preventDefault()
+      return
+    }
+
+    if (
+      key.ctrl &&
+      key.name === "i" &&
+      !key.meta &&
+      !searchMode &&
+      !gitMode &&
+      !intelligenceMode
+    ) {
+      enterIntelligenceMode()
+      key.preventDefault()
+      return
+    }
+
+    const projectFocused =
+      !searchMode && !gitMode && !intelligenceMode && focusedElement() === projectSelect
     if (key.name === "return" && projectFocused && selectedProject()) {
       collapseProjectsPane({ focusSessions: true })
       key.preventDefault()
       return
     }
 
-    const timelineFocused = !searchMode && focusedElement() === timelineSelect
+    const timelineFocused =
+      !searchMode && !gitMode && !intelligenceMode && focusedElement() === timelineSelect
     if (key.name === "return" && timelineFocused) {
       focusDetail()
       key.preventDefault()
@@ -976,44 +1640,92 @@ async function buildUi(
     const searchInputFocused = searchMode && searchFocusables[searchFocusIndex] === searchInput
     const typingFocused = filterFocused || searchInputFocused
 
-    if (!searchMode && key.ctrl && key.name === "[" && !key.meta) {
+    if (!searchMode && !gitMode && !intelligenceMode && key.ctrl && key.name === "[" && !key.meta) {
       toggleProjectsPane()
       key.preventDefault()
       return
     }
 
-    if (!searchMode && !typingFocused && key.name in CATEGORY_BY_KEY) {
-      setCategory(CATEGORY_BY_KEY[key.name]!)
+    if (
+      !searchMode &&
+      !gitMode &&
+      !intelligenceMode &&
+      !typingFocused &&
+      key.name in timelineCategoryKeys
+    ) {
+      setCategory(timelineCategoryKeys[key.name]!)
       key.preventDefault()
       return
     }
 
-    if (!searchMode && key.ctrl && key.name === "]" && !key.meta) {
+    if (!searchMode && !gitMode && !intelligenceMode && key.ctrl && key.name === "]" && !key.meta) {
       jumpToError(1)
       key.preventDefault()
       return
     }
 
-    const copyRequested =
+    if (
       !searchMode &&
-      ((key.name === "y" && !filterFocused && !key.ctrl && !key.meta) ||
-        (key.name === "y" && key.ctrl))
-    if (copyRequested) {
+      !gitMode &&
+      !intelligenceMode &&
+      !typingFocused &&
+      key.name === "k"
+    ) {
+      bookmarkSelectedEvent()
+      key.preventDefault()
+      return
+    }
+
+    if (
+      !searchMode &&
+      !gitMode &&
+      !intelligenceMode &&
+      !typingFocused &&
+      key.ctrl &&
+      key.name === "p" &&
+      !key.meta
+    ) {
+      cycleProvider(1)
+      key.preventDefault()
+      return
+    }
+
+    if (!searchMode && !gitMode && !intelligenceMode && key.ctrl && key.name === "y" && !key.meta) {
       void copyCurrent()
       key.preventDefault()
     }
   })
 
+  refreshProviderHeader()
   setFocus(0)
-  await loadSelectedProject()
+  await applyActiveProvider()
 }
 
 function searchFooterText(): string {
   return "Enter search  ·  Enter open  ·  Esc back  ·  Tab focus"
 }
 
-function defaultFooterText(searchMode = false, projectsExpanded = true): string {
+function gitFooterText(): string {
+  return "Enter inspect  ·  Tab focus  ·  Esc back to timeline"
+}
+
+function intelligenceFooterText(): string {
+  return "Enter inspect  ·  Tab focus  ·  Esc back to timeline"
+}
+
+function defaultFooterText(
+  searchMode = false,
+  gitMode = false,
+  intelligenceMode = false,
+  projectsExpanded = true,
+  categories: TimelineCategory[] = TIMELINE_CATEGORIES,
+  multipleProviders = false,
+): string {
   if (searchMode) return searchFooterText()
+  if (gitMode) return gitFooterText()
+  if (intelligenceMode) return intelligenceFooterText()
   const projectsHint = projectsExpanded ? "Ctrl+[ hide projects" : "Ctrl+[ show projects"
-  return `↑/↓ select  ·  0-6 filter  ·  Ctrl+] errors  ·  / search  ·  Enter focus detail  ·  ${projectsHint}  ·  y copy  ·  Ctrl+C quit`
+  const maxFilterKey = Math.max(0, categories.length - 1)
+  const providerHint = multipleProviders ? "  ·  Ctrl+P provider" : ""
+  return `↑/↓ select  ·  0-${maxFilterKey} filter  ·  Ctrl+] errors  ·  k save knowledge  ·  Ctrl+I intelligence  ·  / search  ·  Ctrl+G git${providerHint}  ·  Enter focus detail  ·  ${projectsHint}  ·  Ctrl+Y copy  ·  Ctrl+C quit`
 }

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "sessionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "firstPrompt": "Fix the login bug"
+    },
+    {
+      "sessionId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      "firstPrompt": "Find JWT usage"
+    }
+  ]
+}

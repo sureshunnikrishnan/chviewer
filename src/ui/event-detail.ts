@@ -109,7 +109,7 @@ export function formatEventDetailPlain(event: AgentEvent): string {
       if (event.exitCode !== undefined) {
         lines.push(`Exit code: ${event.exitCode}`)
       } else {
-        lines.push("", "Output and exit code are not recorded in Cursor transcripts.")
+        lines.push("", "Output and exit code are not recorded in this session's transcript.")
       }
       return lines.join("\n")
     }

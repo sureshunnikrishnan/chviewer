@@ -1,9 +1,12 @@
 import type { Database } from "bun:sqlite"
+import { rematchKnowledgeSessionIds } from "../db/knowledge-store"
+import { sessionFilesFromNormalizedEvents } from "./session-files"
 import { searchableText } from "./search-text"
 import type { NormalizedEvent, ParsedSession, StoredEvent } from "./types"
 
 type ProjectRow = {
   id: number
+  provider: string
   source_path: string
 }
 
@@ -16,7 +19,7 @@ type SessionRow = {
 
 export function listIndexedProjects(db: Database): ProjectRow[] {
   return db
-    .query("SELECT id, source_path FROM projects")
+    .query("SELECT id, provider, source_path FROM projects")
     .all() as ProjectRow[]
 }
 
@@ -85,6 +88,7 @@ export function importSession(
     const sessionId = sessionRow.id
 
     db.run("DELETE FROM events WHERE session_id = ?", [sessionId])
+    db.run("DELETE FROM session_files WHERE session_id = ?", [sessionId])
 
     const insertEvent = db.prepare(
       `INSERT INTO events (session_id, seq, kind, role, text, payload_json, source_offset, timestamp)
@@ -104,10 +108,23 @@ export function importSession(
       )
     })
 
+    const insertSessionFile = db.prepare(
+      `INSERT INTO session_files (session_id, path, relation)
+       VALUES (?, ?, ?)`,
+    )
+
+    for (const file of sessionFilesFromNormalizedEvents(parsed.events)) {
+      for (const relation of file.relations) {
+        insertSessionFile.run(sessionId, file.path, relation)
+      }
+    }
+
     return sessionId
   })
 
-  return importTx()
+  const sessionId = importTx()
+  rematchKnowledgeSessionIds(db)
+  return sessionId
 }
 
 export function deleteSession(db: Database, sessionId: number): void {
@@ -120,6 +137,7 @@ export function deleteProject(db: Database, projectId: number): void {
 
 export function clearAllIndexedData(db: Database): void {
   const clearTx = db.transaction(() => {
+    db.run("UPDATE knowledge_items SET session_id = NULL")
     db.run("DELETE FROM events")
     db.run("DELETE FROM sessions")
     db.run("DELETE FROM projects")

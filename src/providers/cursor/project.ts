@@ -106,9 +106,13 @@ function mapFileEdit(event: StoredEvent): FileEditEvent {
   const path = asString(p.path) ?? asString(input.path) ?? "unknown"
   const editKindRaw = asString(p.editKind)
   const editKind =
-    editKindRaw === "Write" || editKindRaw === "Delete" || editKindRaw === "StrReplace"
-      ? editKindRaw
-      : "StrReplace"
+    editKindRaw === "Write" || editKindRaw === "Delete" || editKindRaw === "delete"
+      ? editKindRaw === "delete"
+        ? "Delete"
+        : editKindRaw
+      : editKindRaw === "StrReplace"
+        ? "StrReplace"
+        : "StrReplace"
 
   return {
     ...baseEvent(event),

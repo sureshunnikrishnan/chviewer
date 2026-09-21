@@ -1,6 +1,7 @@
 import { StyledText, bold, dim, fg, t } from "@opentui/core"
 import type { AgentEvent } from "../core/agent-session"
 import { isTimelineVisible } from "../core/agent-session"
+import type { ProviderCapabilities } from "../providers/types"
 import { formatEventDetailPlain } from "./event-detail"
 import { theme } from "./theme"
 
@@ -111,10 +112,28 @@ export function formatTimelineEventName(event: AgentEvent): string {
   return `${event.label}  ${formatTimelineEventSummary(event)}`
 }
 
-export function formatCategoryFilterLine(active: TimelineCategory): string {
-  return TIMELINE_CATEGORIES.map((category) =>
-    category === active ? `[${category}]` : category,
-  ).join(" · ")
+export function availableTimelineCategories(
+  capabilities?: ProviderCapabilities,
+): TimelineCategory[] {
+  if (!capabilities || capabilities.plans) return TIMELINE_CATEGORIES
+  return TIMELINE_CATEGORIES.filter((category) => category !== "plans")
+}
+
+export function formatCategoryFilterLine(
+  active: TimelineCategory,
+  categories: TimelineCategory[] = TIMELINE_CATEGORIES,
+): string {
+  return categories
+    .map((category) => (category === active ? `[${category}]` : category))
+    .join(" · ")
+}
+
+export function categoryFilterKeys(categories: TimelineCategory[]): Record<string, TimelineCategory> {
+  const keys: Record<string, TimelineCategory> = {}
+  for (const [key, category] of Object.entries(CATEGORY_BY_KEY)) {
+    if (categories.includes(category)) keys[key] = category
+  }
+  return keys
 }
 
 export function formatTimelineLine(event: AgentEvent, showArrow = true): StyledText {

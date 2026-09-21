@@ -140,7 +140,7 @@ describe("formatEventDetailPlain", () => {
     expect(detail).toContain("Command")
     expect(detail).toContain("pnpm test")
     expect(detail).toContain("Working directory: /tmp/fixture")
-    expect(detail).toContain("Output and exit code are not recorded in Cursor transcripts.")
+    expect(detail).toContain("Output and exit code are not recorded in this session's transcript.")
     expect(detail).not.toContain("PASS")
   })
 

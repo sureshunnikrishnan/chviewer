@@ -5,6 +5,7 @@ import { index, rebuild, sync } from "../../src/core/index"
 import { getSessionTranscript, listProjects, listSessions } from "../../src/db/store"
 import { getDatabase } from "../../src/core/index"
 import {
+  FIXTURE_CLAUDE_PROJECTS,
   agentSessionSnapshot,
   appendToFile,
   createTempDbPath,
@@ -171,6 +172,31 @@ describe("index sync", () => {
     expect(kinds.search).toBeGreaterThan(0)
     expect(kinds.error).toBeGreaterThan(0)
     expect(kinds.unknown).toBeGreaterThan(0)
+    void dbPath
+  })
+
+  test("indexes Claude Code fixture sessions alongside Cursor", async () => {
+    const dbPath = boot()
+    setupTestEnv({ dbPath, claudeProjectsDir: FIXTURE_CLAUDE_PROJECTS })
+
+    const summary = await index()
+    expect(summary.sessionsAdded).toBe(8)
+
+    const db = getDatabase()
+    const projects = listProjects(db)
+    expect(projects).toHaveLength(2)
+
+    const providerRows = db
+      .query(
+        `SELECT p.provider, COUNT(s.id) AS session_count
+         FROM projects p
+         LEFT JOIN sessions s ON s.project_id = p.id
+         GROUP BY p.id`,
+      )
+      .all() as Array<{ provider: string; session_count: number }>
+
+    expect(providerRows.find((row) => row.provider === "claude-code")?.session_count).toBe(2)
+    expect(providerRows.find((row) => row.provider === "cursor")?.session_count).toBe(6)
     void dbPath
   })
 
